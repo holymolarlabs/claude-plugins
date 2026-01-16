@@ -1,0 +1,169 @@
+# ralph.toml Schema Documentation
+#
+# This file documents the configuration options for the ralph-todos plugin.
+# Copy this to your repo root as `ralph.toml` and customize the values.
+#
+# All fields have sensible defaults. Only override what you need.
+
+# =============================================================================
+# EXAMPLE CONFIGURATION
+# =============================================================================
+#
+# [project]
+# name = "taptaptap-mono"
+# label = "web"
+#
+# [linear]
+# team = "HolyMolarLabs"
+# followup_labels = ["follow-up", "ui"]
+# backlog_labels = ["web"]
+#
+# [paths]
+# todos_dir = "todos"
+#
+# [tools]
+# package_manager = "bun"
+
+# =============================================================================
+# SCHEMA SPECIFICATION
+# =============================================================================
+
+[_schema]
+version = "1.0.0"
+description = "Configuration schema for ralph-todos Claude Code plugin"
+
+# -----------------------------------------------------------------------------
+# [project] - Project identification
+# -----------------------------------------------------------------------------
+[_schema.project]
+description = "Project-level settings for identification and filtering"
+
+[_schema.project.name]
+type = "string"
+required = true
+description = "Unique identifier for this project (e.g., 'taptaptap-mono', 'taptaptap-api')"
+example = "taptaptap-mono"
+
+[_schema.project.label]
+type = "string"
+required = true
+description = "Primary Linear label for this project. Used to filter issues and tag follow-ups."
+example = "web"
+validation = "Must match an existing Linear label"
+
+# -----------------------------------------------------------------------------
+# [linear] - Linear integration settings
+# -----------------------------------------------------------------------------
+[_schema.linear]
+description = "Linear issue tracker integration configuration"
+
+[_schema.linear.team]
+type = "string"
+required = true
+default = "HolyMolarLabs"
+description = "Linear team name for API calls"
+example = "HolyMolarLabs"
+
+[_schema.linear.followup_labels]
+type = "array[string]"
+required = true
+description = "Labels to apply when creating follow-up issues from review findings"
+example = ["follow-up", "ui"]
+note = "First label should typically be 'follow-up', second should be project label"
+
+[_schema.linear.backlog_labels]
+type = "array[string]"
+required = true
+description = "Labels used to filter backlog issues relevant to this project"
+example = ["web"]
+note = "Usually contains just the project label"
+
+[_schema.linear.priority_labels]
+type = "table"
+required = false
+default = { p1 = "p1", p2 = "p2", p3 = "p3" }
+description = "Mapping of priority levels to Linear label names"
+
+# -----------------------------------------------------------------------------
+# [paths] - File system paths
+# -----------------------------------------------------------------------------
+[_schema.paths]
+description = "Directory and file path configuration"
+
+[_schema.paths.todos_dir]
+type = "string"
+required = false
+default = "todos"
+description = "Directory containing todo files, relative to repo root"
+example = "todos"
+
+[_schema.paths.worktrees_dir]
+type = "string"
+required = false
+default = ".worktrees"
+description = "Directory for git worktrees (parallel processing)"
+example = ".worktrees"
+
+# -----------------------------------------------------------------------------
+# [tools] - Tool and runtime configuration
+# -----------------------------------------------------------------------------
+[_schema.tools]
+description = "Development tools and runtime settings"
+
+[_schema.tools.package_manager]
+type = "string"
+required = false
+default = "bun"
+enum = ["bun", "npm", "pnpm", "yarn"]
+description = "Package manager for running scripts and installing deps"
+example = "bun"
+
+# -----------------------------------------------------------------------------
+# [parallel] - Parallel processing settings
+# -----------------------------------------------------------------------------
+[_schema.parallel]
+description = "Configuration for ralph-todos-parallel feature"
+
+[_schema.parallel.enabled]
+type = "boolean"
+required = false
+default = true
+description = "Whether parallel processing commands are available"
+
+[_schema.parallel.max_workers]
+type = "integer"
+required = false
+default = 3
+min = 1
+max = 5
+description = "Maximum concurrent workers for parallel processing"
+
+# -----------------------------------------------------------------------------
+# [workflows] - Workflow behavior settings
+# -----------------------------------------------------------------------------
+[_schema.workflows]
+description = "Behavior settings for the todo processing workflow"
+
+[_schema.workflows.auto_merge]
+type = "boolean"
+required = false
+default = true
+description = "Whether to auto-merge PRs when CI passes"
+
+[_schema.workflows.delete_completed_todos]
+type = "boolean"
+required = false
+default = true
+description = "Whether to delete local todo files after PR merge (Linear is source of truth)"
+
+[_schema.workflows.skip_review]
+type = "boolean"
+required = false
+default = false
+description = "Default value for --skip-review flag"
+
+[_schema.workflows.skip_compound]
+type = "boolean"
+required = false
+default = false
+description = "Default value for --skip-compound flag"

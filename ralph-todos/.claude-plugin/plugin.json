@@ -1,0 +1,10 @@
+{
+  "name": "ralph-todos",
+  "description": "Autonomous todo processing loop with Linear integration. Processes todos from local files, runs Plan-Work-Review-Compound workflow, opens PRs, and syncs with Linear.",
+  "version": "1.0.0",
+  "author": {
+    "name": "HolyMolarLabs"
+  },
+  "repository": "https://github.com/holymolarlabs/claude-plugins",
+  "license": "MIT"
+}
