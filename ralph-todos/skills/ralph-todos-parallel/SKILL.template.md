@@ -87,17 +87,17 @@ Same as ralph-todos Phase 0.5:
 
 1. **Get cycles:**
    ```
-   mcp__linear__list_cycles(teamId: "HolyMolarLabs", type: "current")
-   mcp__linear__list_cycles(teamId: "HolyMolarLabs", type: "next")
+   mcp__linear__list_cycles(teamId: "{{linear.team}}", type: "current")
+   mcp__linear__list_cycles(teamId: "{{linear.team}}", type: "next")
    ```
 
 2. **Fetch issues:**
    ```
    mcp__linear__list_issues(
-     team: "HolyMolarLabs",
+     team: "{{linear.team}}",
      cycle: "[current-cycle-id]",
      state: ["Todo", "In Progress"],
-     label: "web"
+     label: "{{project.label}}"
    )
    ```
 
@@ -105,7 +105,7 @@ Same as ralph-todos Phase 0.5:
 
 ### Phase 2: Build Work Queue
 
-1. Read all `todos/*-pending-*.md` files
+1. Read all `{{paths.todos_dir}}/*-pending-*.md` files
 2. Filter to those with `linear_issue` in frontmatter
 3. Sort by: cycle (current→next→backlog) → priority (p1→p2→p3) → number
 4. Apply `--max-todos` limit if set
@@ -161,7 +161,7 @@ else:
 For each claimed todo, create isolated worktree:
 
 ```bash
-bun .claude/skills/ralph-todos-parallel/scripts/worktree-utils.ts create \
+{{tools.package_manager}} .claude/skills/ralph-todos-parallel/scripts/worktree-utils.ts create \
     "ralph-[linearIssue]" \
     "feature/[slug]"
 ```
@@ -169,7 +169,7 @@ bun .claude/skills/ralph-todos-parallel/scripts/worktree-utils.ts create \
 This creates:
 - `.worktrees/ralph-HOL-123/` directory
 - New branch `feature/[slug]` from main
-- Runs `bun install` in the worktree
+- Runs `{{tools.package_manager}} install` in the worktree
 
 #### 4c. Launch Workers in Parallel
 
@@ -249,12 +249,12 @@ mcp__linear__create_comment(
 
 **Delete local todo (Linear is source of truth):**
 ```bash
-rm todos/[todo-filename]
+rm {{paths.todos_dir}}/[todo-filename]
 ```
 
 **Remove worktree:**
 ```bash
-bun .claude/skills/ralph-todos-parallel/scripts/worktree-utils.ts delete "ralph-[linearIssue]"
+{{tools.package_manager}} .claude/skills/ralph-todos-parallel/scripts/worktree-utils.ts delete "ralph-[linearIssue]"
 ```
 
 ### Phase 5: Continue or Stop
@@ -271,7 +271,7 @@ Check:
 git worktree prune
 
 # List remaining worktrees (for debugging blocked/failed)
-bun .claude/skills/ralph-todos-parallel/scripts/worktree-utils.ts list
+{{tools.package_manager}} .claude/skills/ralph-todos-parallel/scripts/worktree-utils.ts list
 ```
 
 ### Phase 7: Generate Summary Report
@@ -375,8 +375,8 @@ Both share:
 
 **"Worktree already exists"**
 - Another run may have created it
-- Use `bun worktree-utils.ts list` to check
-- Clean with `bun worktree-utils.ts delete ralph-HOL-XXX`
+- Use `{{tools.package_manager}} worktree-utils.ts list` to check
+- Clean with `{{tools.package_manager}} worktree-utils.ts delete ralph-HOL-XXX`
 
 **"Linear issue already In Progress"**
 - Another worker/orchestrator claimed it
@@ -389,5 +389,5 @@ Both share:
 
 **"Disk space issues"**
 - Each worktree needs ~100-200MB for node_modules
-- Clean old worktrees: `bun worktree-utils.ts cleanup`
+- Clean old worktrees: `{{tools.package_manager}} worktree-utils.ts cleanup`
 - Reduce `--workers` count

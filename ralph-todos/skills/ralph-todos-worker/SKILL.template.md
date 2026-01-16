@@ -243,7 +243,7 @@ Orchestrator invokes:
   Task ralph-todos-worker
   Prompt: "Process todo with:
     worktreePath: /path/to/.worktrees/ralph-HOL-123
-    todoFile: todos/001-pending-p1-fix-auth-bug.md
+    todoFile: {{paths.todos_dir}}/001-pending-p1-fix-auth-bug.md
     linearId: abc-123-uuid
     linearIssue: HOL-123
     skipReview: false
@@ -253,7 +253,7 @@ Orchestrator invokes:
 Worker:
   1. cd /path/to/.worktrees/ralph-HOL-123
   2. Verify Linear HOL-123 is "In Progress"
-  3. Read todos/001-pending-p1-fix-auth-bug.md
+  3. Read {{paths.todos_dir}}/001-pending-p1-fix-auth-bug.md
   4. Run workflows:plan (if needed)
   5. Run workflows:work
   6. Run workflows:review
