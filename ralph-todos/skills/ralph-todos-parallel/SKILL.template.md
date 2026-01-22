@@ -127,7 +127,9 @@ Would process 3 todos with 3 workers.
 
 Same as ralph-todos Phase 0.7 - review all todos and ask ALL clarifying questions at once using AskUserQuestion before starting any work.
 
-### Phase 4: Process Batches
+### Phase 4: Process Batches (LOOP)
+
+**This phase repeats until the work queue is empty or --max-todos is reached.**
 
 For each batch of N todos (where N = --workers):
 
@@ -259,10 +261,36 @@ rm {{paths.todos_dir}}/[todo-filename]
 
 ### Phase 5: Continue or Stop
 
-Check:
-1. If `--max-todos` reached → Stop
-2. If no more pending todos in queue → Stop
-3. Otherwise → Go to Phase 4 with next batch
+**CRITICAL: This is a loop. You MUST repeat Phase 4 until all todos are processed.**
+
+After collecting results from the current batch:
+
+1. **Track progress:** Increment `todosProcessed` by the number of completed workers
+2. **Check stop conditions:**
+   - If `--max-todos` is set AND `todosProcessed >= maxTodos` → Proceed to Phase 6
+   - If work queue is empty (no more pending todos) → Proceed to Phase 6
+3. **If NOT stopping:**
+   - Remove processed todos from the work queue
+   - **Go back to Phase 4** and process the next batch
+   - **DO NOT proceed to Phase 6 until the queue is empty or max-todos is reached**
+
+**Loop State to Track:**
+```
+totalInQueue: [initial queue size]
+todosProcessed: 0  # increment after each batch
+batchNumber: 1     # increment each iteration
+remainingQueue: [todos not yet processed]
+```
+
+**Example loop execution with 7 todos and 3 workers:**
+```
+Batch 1: Process todos 1, 2, 3 → todosProcessed = 3
+  → Queue not empty, go back to Phase 4
+Batch 2: Process todos 4, 5, 6 → todosProcessed = 6
+  → Queue not empty, go back to Phase 4
+Batch 3: Process todo 7 → todosProcessed = 7
+  → Queue empty, proceed to Phase 6
+```
 
 ### Phase 6: Final Cleanup
 
