@@ -36,6 +36,44 @@ Orchestrates multiple workers processing todos concurrently in isolated git work
 Same as ralph-todos: Linear MCP integration must be working.
 Verify with: `mcp__linear__list_teams()`
 
+## Context Efficiency for Parallel Orchestration
+
+**Problem:** Orchestrator needs to see ALL issues to build work queue, but Linear responses can be 10k+ tokens.
+
+**Solution: Two-Tier Fetching**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ORCHESTRATOR (needs overview, not full details)        │
+│                                                         │
+│  Fetch: list_issues(limit: 30)                          │
+│  Keep:  { id, identifier, title, priority, state }      │
+│  Discard: description, comments, full history           │
+│  Pass to workers: just linearId + linearIssue           │
+└─────────────────────────────────────────────────────────┘
+                    │
+        ┌───────────┼───────────┐
+        ▼           ▼           ▼
+   ┌─────────┐ ┌─────────┐ ┌─────────┐
+   │ Worker1 │ │ Worker2 │ │ Worker3 │
+   │         │ │         │ │         │
+   │ get_issue(id)       │ │         │  ← Full details
+   │ for ONE issue       │ │         │    in isolated context
+   └─────────┘ └─────────┘ └─────────┘
+```
+
+**Rules:**
+1. **Orchestrator fetches list** with `limit: 30` - extracts minimal fields
+2. **Workers fetch details** via `get_issue(id)` - each in isolated Task context
+3. **Don't re-fetch** in orchestrator what workers will fetch anyway
+
+**Token budget:**
+| Phase | Operation | Tokens | Notes |
+|-------|-----------|--------|-------|
+| Sync | `list_issues(limit: 30)` | ~8k | One-time, need full queue |
+| Claim | `get_issue(id)` per todo | ~500 each | Check before claim |
+| Work | Worker calls `get_issue` | ~500 | Isolated context |
+
 ## Architecture
 
 ```
@@ -83,7 +121,7 @@ For a more polished worktree experience, consider [worktrunk.dev](https://worktr
 
 ### Phase 1: Sync from Linear (Source of Truth)
 
-Same as ralph-todos Phase 0.5:
+**See "Context Efficiency" section above.** Orchestrator fetches list, workers fetch details.
 
 1. **Get cycles:**
    ```
@@ -91,17 +129,32 @@ Same as ralph-todos Phase 0.5:
    mcp__linear__list_cycles(teamId: "{{linear.team}}", type: "next")
    ```
 
-2. **Fetch issues:**
+2. **Fetch issues (with limits):**
    ```
+   # Current cycle - highest priority
    mcp__linear__list_issues(
      team: "{{linear.team}}",
      cycle: "[current-cycle-id]",
      state: ["Todo", "In Progress"],
-     label: "{{project.label}}"
+     label: "{{project.label}}",
+     limit: 30  # Need full queue picture
+   )
+
+   # Next cycle (if --include-backlog or planning ahead)
+   mcp__linear__list_issues(
+     team: "{{linear.team}}",
+     cycle: "[next-cycle-id]",
+     state: ["Todo"],
+     label: "{{project.label}}",
+     limit: 20
    )
    ```
 
-3. **Create/update local todos** for any Linear issues without matching local files
+3. **Extract minimal fields for work queue:**
+   From each issue, store only: `id`, `identifier` (HOL-XXX), `title`, `priority`, `state`
+   Workers will fetch full details in their isolated contexts.
+
+4. **Create/update local todos** for any Linear issues without matching local files
 
 ### Phase 2: Build Work Queue
 

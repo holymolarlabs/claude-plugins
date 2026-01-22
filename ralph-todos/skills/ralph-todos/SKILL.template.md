@@ -80,12 +80,16 @@ To interact with Linear, use the `mcp__linear__*` function calls directly:
    - Work phases: use stored IDs, fetch one at a time
 
 **Token budget guide:**
-| Operation | Typical Tokens | Guidance |
-|-----------|----------------|----------|
-| `list_issues(limit: 10)` | ~3k | Acceptable |
-| `list_issues(limit: 50)` | ~12k | Avoid |
-| `get_issue(id)` | ~500 | Use freely for current todo |
-| `list_cycles` | ~200 | Lightweight, OK |
+| Operation | Typical Tokens | When to Use |
+|-----------|----------------|-------------|
+| `list_issues(limit: 30)` | ~8k | Sync phase only (one-time) |
+| `list_issues(limit: 10)` | ~3k | Ad-hoc queries during work |
+| `get_issue(id)` | ~500 | Current todo (via Task subagent) |
+| `list_cycles` | ~200 | Anytime, lightweight |
+
+**Sync vs Work phases:**
+- **Sync (start of loop):** Higher limits OK - need full queue picture
+- **Work (per-todo):** Use `get_issue(id)` in Task subagent - isolated context
 
 ## Architecture: Linear as Source of Truth
 
@@ -273,7 +277,7 @@ Plan → Work → Review → Compound
      team: "{{linear.team}}",
      cycle: "[current-cycle-id]",
      state: ["Todo", "In Progress"],
-     limit: 15  # Context-efficient limit
+     limit: 30  # Sync needs full picture (one-time cost)
    )
 
    # Next cycle issues (planning ahead)
@@ -281,7 +285,7 @@ Plan → Work → Review → Compound
      team: "{{linear.team}}",
      cycle: "[next-cycle-id]",
      state: ["Todo", "In Progress"],
-     limit: 10  # Fewer for planning horizon
+     limit: 25  # Planning horizon
    )
 
    # Backlog (only if --include-backlog flag)
@@ -289,9 +293,11 @@ Plan → Work → Review → Compound
      team: "{{linear.team}}",
      state: ["Backlog"],
      labels: {{linear.backlog_labels}},
-     limit: 10  # Backlog is lower priority
+     limit: 15  # Backlog is lower priority
    )
    ```
+
+   **Note:** Sync is a one-time cost at loop start. Higher limits here are acceptable because work phases use Task subagents with `get_issue(id)` for single issues.
 
 2. **For each Linear issue, check local state:**
 
