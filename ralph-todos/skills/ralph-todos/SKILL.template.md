@@ -46,6 +46,47 @@ To interact with Linear, use the `mcp__linear__*` function calls directly:
 
 **Quick verification:** Call `mcp__linear__list_teams()` - if it returns team data, Linear is working.
 
+### Linear Context Efficiency (CRITICAL)
+
+**Problem:** Linear MCP responses can consume 10k+ tokens per call, rapidly filling context.
+
+**Rules:**
+
+1. **Always use `limit` parameter:**
+   ```
+   mcp__linear__list_issues(team: "...", limit: 10)  # ✅ Good
+   mcp__linear__list_issues(team: "...")             # ❌ Bad - fetches 50 by default
+   ```
+
+2. **Filter aggressively:**
+   ```
+   mcp__linear__list_issues(
+     team: "{{linear.team}}",
+     cycle: "[id]",
+     state: "Todo",           # Only actionable states
+     limit: 10                # Never more than needed
+   )
+   ```
+
+3. **Fetch details only when working:**
+   - `list_issues` → Get IDs and titles for queue
+   - `get_issue` → Fetch full details ONLY for current todo
+
+4. **Don't re-fetch what's in frontmatter:**
+   If todo file already has `linear_issue: HOL-123` and `linear_url`, don't call `get_issue` just to verify - trust the local data unless reconciling.
+
+5. **Batch awareness:**
+   - Sync phase: fetch list once, store IDs
+   - Work phases: use stored IDs, fetch one at a time
+
+**Token budget guide:**
+| Operation | Typical Tokens | Guidance |
+|-----------|----------------|----------|
+| `list_issues(limit: 10)` | ~3k | Acceptable |
+| `list_issues(limit: 50)` | ~12k | Avoid |
+| `get_issue(id)` | ~500 | Use freely for current todo |
+| `list_cycles` | ~200 | Lightweight, OK |
+
 ## Architecture: Linear as Source of Truth
 
 **Linear is the single source of truth for all work items.** Local todo files in `{{paths.todos_dir}}/` are **temporary working documents** that provide detailed implementation context during work, but Linear determines:
@@ -222,27 +263,33 @@ Plan → Work → Review → Compound
    mcp__linear__list_cycles(teamId: "{{linear.team}}", type: "next")
    ```
 
-2. **Fetch relevant Linear issues (cycle-aware):**
+2. **Fetch relevant Linear issues (cycle-aware, with limits):**
+
+   ⚠️ **Always use `limit` to avoid context bloat.** See "Linear Context Efficiency" section.
+
    ```
    # Current cycle issues (highest priority)
    mcp__linear__list_issues(
      team: "{{linear.team}}",
      cycle: "[current-cycle-id]",
-     state: ["Todo", "In Progress"]
+     state: ["Todo", "In Progress"],
+     limit: 15  # Context-efficient limit
    )
 
    # Next cycle issues (planning ahead)
    mcp__linear__list_issues(
      team: "{{linear.team}}",
      cycle: "[next-cycle-id]",
-     state: ["Todo", "In Progress"]
+     state: ["Todo", "In Progress"],
+     limit: 10  # Fewer for planning horizon
    )
 
    # Backlog (only if --include-backlog flag)
    mcp__linear__list_issues(
      team: "{{linear.team}}",
      state: ["Backlog"],
-     labels: {{linear.backlog_labels}}
+     labels: {{linear.backlog_labels}},
+     limit: 10  # Backlog is lower priority
    )
    ```
 
