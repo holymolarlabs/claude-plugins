@@ -114,6 +114,45 @@ This skill implements the Ralph Wiggum loop technique for autonomous todo proces
 11. **Mark** todo as completed, update Linear, optionally clean up
 12. **Repeat** until all done or max iterations reached
 
+### Context Window Architecture
+
+**Problem:** LLM context windows are limited. A 1000-line skill doc + planning output + work output + review output = context overflow.
+
+**Solution:** Each heavy phase runs in a **separate Task subagent** with its own context window.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  RALPH-TODOS MAIN LOOP (lightweight orchestration)          │
+│  - Keeps: todo metadata, phase results (JSON summaries)     │
+│  - Discards: full exploration, implementation details       │
+└─────────────────────────────────────────────────────────────┘
+        │           │           │           │
+        ▼           ▼           ▼           ▼
+   ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
+   │  Plan  │  │  Work  │  │ Review │  │Compound│
+   │ (Task) │  │ (Task) │  │ (Task) │  │ (Task) │
+   │        │  │        │  │        │  │ haiku  │
+   │ Fresh  │  │ Fresh  │  │ Fresh  │  │ Fresh  │
+   │Context │  │Context │  │Context │  │Context │
+   └────────┘  └────────┘  └────────┘  └────────┘
+```
+
+**Context Passing Between Phases:**
+
+| From Phase | To Phase | Data Passed |
+|------------|----------|-------------|
+| Init | Plan | Todo file path, branch name, Linear ID |
+| Plan | Work | Plan file path (or "see todo") |
+| Work | Review | Commit hash, files changed list |
+| Review | Compound | Findings summary, files changed |
+| Compound | PR | Learning file path (if any) |
+
+**Rules:**
+- Pass **file paths**, not file contents
+- Pass **JSON summaries**, not full outputs
+- Each Task returns structured data the main loop can parse
+- Main loop stays lightweight = more iterations possible
+
 ### Mandatory Workflow Sequence (STRICT)
 
 **Every task MUST follow this sequence. No exceptions. No skipping steps.**
@@ -432,28 +471,67 @@ This signals to the team that work has begun on this issue.
 
 Check if todo already has sufficient plan:
 - If "Proposed Solutions" and "Recommended Action" sections exist with clear steps → Skip planning
-- If todo is sparse or lacks implementation details → Run `/workflows:plan`
+- If todo is sparse or lacks implementation details → Run planning via **Task subagent**
+
+**Why Task instead of Skill:** Task spawns a separate context window, preventing context bloat in the main loop. The plan agent can explore freely without consuming your context budget.
 
 When running plan:
 ```
-Skill: workflows:plan
-Args: [path to todo file]
+Task:
+  subagent_type: Plan
+  description: "Plan [todo-title]"
+  prompt: |
+    Plan the implementation for this todo.
+
+    Todo file: [absolute path to todo file]
+    Branch: [current branch name]
+    Linear issue: [HOL-XXX]
+
+    Read the todo file, explore the codebase, and create an implementation plan.
+    Write the plan to a file at: .claude/plans/[issue-id]-plan.md
+
+    Return ONLY the plan file path when complete.
 ```
+
+**Capture the output:** Store the returned plan file path for Phase 4.
 
 ### Phase 4: Work
 
-Execute the implementation:
+Execute the implementation via **Task subagent**:
+
+**Why Task instead of Skill:** Work is the heaviest phase - lots of file reads, edits, test runs. A fresh context window lets the agent focus entirely on implementation without the overhead of loop instructions.
 
 ```
-Skill: workflows:work
-Args: [path to todo file or generated plan]
+Task:
+  subagent_type: general-purpose
+  description: "Implement [todo-title]"
+  prompt: |
+    Implement the changes for this todo.
+
+    Todo file: [absolute path to todo file]
+    Plan file: [path from Phase 3, or "see todo file" if skipped]
+    Branch: [current branch name]
+    Linear issue: [HOL-XXX]
+
+    Instructions:
+    1. Read the todo and plan files
+    2. Implement all acceptance criteria
+    3. Run `bin/lint` and `bin/test` - fix any failures
+    4. Commit changes with message: "feat: [todo title]\n\nFixes [HOL-XXX]"
+
+    Return a JSON object when complete:
+    {
+      "status": "success" | "failed",
+      "commit_hash": "[hash]",
+      "files_changed": ["list", "of", "files"],
+      "tests_passed": true | false,
+      "error": null | "[error message]"
+    }
 ```
 
-The work workflow will:
-- Create TodoWrite items from acceptance criteria
-- Implement changes
-- Run tests and linting
-- Create commit
+**Handle the result:**
+- If `status: "failed"` → Mark todo as blocked, continue to next
+- If `status: "success"` → Proceed to Phase 5
 
 ### Phase 5: Review (MANDATORY)
 
@@ -469,14 +547,35 @@ The work workflow will:
 
 **If `--skip-review` was NOT passed, you MUST run review. No exceptions.**
 
-Run code review automatically on changes:
+Run code review via **Task subagent**:
+
+**Why Task instead of Skill:** Review spawns multiple sub-agents internally. Using Task isolates all that context churn from the main loop.
 
 ```
-Skill: workflows:review
-Args: latest
+Task:
+  subagent_type: general-purpose
+  description: "Review [todo-title]"
+  prompt: |
+    Review the code changes for this todo.
+
+    Branch: [current branch name]
+    Commit: [commit hash from Phase 4]
+    Linear issue: [HOL-XXX]
+    Files changed: [list from Phase 4]
+
+    Run `/workflows:review` on the latest changes.
+
+    Return a JSON object when complete:
+    {
+      "status": "pass" | "fail",
+      "p1_findings": [{"title": "...", "description": "...", "file": "...", "line": N}],
+      "p2_findings": [...],
+      "p3_findings": [...],
+      "summary": "Brief summary of review results"
+    }
 ```
 
-Do NOT skip this step. The review catches issues before they reach CI or production.
+**Do NOT skip this step.** The review catches issues before they reach CI or production.
 
 The review produces findings categorized as:
 - **P1 (Critical)**: Security issues, data loss risks, breaking changes
@@ -545,16 +644,37 @@ For each P2/P3 finding, **create a new follow-up todo and Linear ticket:**
 
 **If `--skip-compound` was NOT passed, you MUST run compound. No exceptions.**
 
-Document learnings:
+Document learnings via **Task subagent**:
+
+**Why Task instead of Skill:** Compound needs to analyze what happened but doesn't need the full loop context. A fresh agent with just the summary info is more efficient.
 
 ```
-Skill: workflows:compound
+Task:
+  subagent_type: general-purpose
+  model: haiku  # Compound is lightweight, use faster/cheaper model
+  description: "Compound [todo-title]"
+  prompt: |
+    Document learnings from this completed todo.
+
+    Todo file: [absolute path to todo file]
+    Linear issue: [HOL-XXX]
+    Files changed: [list from Phase 4]
+    Review findings: [summary from Phase 5]
+
+    Run `/workflows:compound` to document:
+    - What was learned
+    - Patterns discovered
+    - Future prevention strategies
+
+    Return a JSON object when complete:
+    {
+      "status": "complete",
+      "learning_file": "[path to created learning doc, if any]",
+      "summary": "Brief summary of what was documented"
+    }
 ```
 
-This captures:
-- What was learned
-- Patterns discovered
-- Future prevention strategies
+This captures institutional knowledge without bloating the main loop context.
 
 ### Phase 6.5: Workflow Verification Gate (BLOCKING)
 

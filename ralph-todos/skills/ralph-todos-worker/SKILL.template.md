@@ -82,22 +82,61 @@ The worktree has:
 
 Check if todo has sufficient implementation plan:
 - If "Proposed Solutions" and "Recommended Action" exist with clear steps → Skip
-- Otherwise → Run planning:
+- Otherwise → Run planning via **Task subagent**:
+
+**Why Task:** Isolates planning context from worker context, preserving context budget.
 
 ```
-Skill: workflows:plan
-Args: [todoFile path]
+Task:
+  subagent_type: Plan
+  description: "Plan [todo-title]"
+  prompt: |
+    Plan the implementation for this todo.
+
+    Working directory: [worktreePath]
+    Todo file: [todoFile]
+    Linear issue: [linearIssue]
+
+    Read the todo, explore the codebase in the worktree, create implementation plan.
+    Write plan to: [worktreePath]/.claude/plans/[linearIssue]-plan.md
+
+    Return ONLY the plan file path.
 ```
 
-**Note:** Plan workflow should reference the worktree path for any file operations.
+Store the returned plan path for Phase 4.
 
 ### Phase 4: Work
 
-Execute the implementation in your worktree:
+Execute the implementation via **Task subagent**:
+
+**Why Task:** Work is context-heavy. Fresh context lets the agent focus on implementation.
 
 ```
-Skill: workflows:work
-Args: [todoFile or plan path]
+Task:
+  subagent_type: general-purpose
+  description: "Implement [todo-title]"
+  prompt: |
+    Implement the changes for this todo.
+
+    Working directory: [worktreePath]
+    Todo file: [todoFile]
+    Plan file: [path from Phase 3, or "see todo file"]
+    Linear issue: [linearIssue]
+
+    Instructions:
+    1. cd to [worktreePath] for all operations
+    2. Read todo and plan files
+    3. Implement all acceptance criteria
+    4. Run `bin/lint` and `bin/test` - fix failures
+    5. Stage changes: git add -A
+
+    Return JSON:
+    {
+      "status": "success" | "failed",
+      "files_changed": ["list"],
+      "tests_passed": true | false,
+      "error": null | "[message]"
+    }
 ```
 
 All code changes happen in `[worktreePath]`.
@@ -115,11 +154,29 @@ All code changes happen in `[worktreePath]`.
 
 **If `skipReview` is false or undefined, run review. No exceptions.**
 
-Run code review on your changes:
+Run code review via **Task subagent**:
 
 ```
-Skill: workflows:review
-Args: latest
+Task:
+  subagent_type: general-purpose
+  description: "Review [todo-title]"
+  prompt: |
+    Review the code changes in this worktree.
+
+    Working directory: [worktreePath]
+    Linear issue: [linearIssue]
+    Files changed: [list from Phase 4]
+
+    Run `/workflows:review` on the changes.
+
+    Return JSON:
+    {
+      "status": "pass" | "fail",
+      "p1_findings": [...],
+      "p2_findings": [...],
+      "p3_findings": [...],
+      "summary": "Brief review summary"
+    }
 ```
 
 **Handle review findings:**
@@ -151,10 +208,30 @@ Return: {
 
 **If `skipCompound` is false or undefined, run compound. No exceptions.**
 
-Document learnings:
+Document learnings via **Task subagent**:
 
 ```
-Skill: workflows:compound
+Task:
+  subagent_type: general-purpose
+  model: haiku  # Lightweight task, use faster model
+  description: "Compound [todo-title]"
+  prompt: |
+    Document learnings from this completed todo.
+
+    Working directory: [worktreePath]
+    Todo file: [todoFile]
+    Linear issue: [linearIssue]
+    Files changed: [list from Phase 4]
+    Review summary: [from Phase 5]
+
+    Run `/workflows:compound` to document learnings.
+
+    Return JSON:
+    {
+      "status": "complete",
+      "learning_file": "[path if created]",
+      "summary": "What was documented"
+    }
 ```
 
 ### Phase 7: Commit and Push
