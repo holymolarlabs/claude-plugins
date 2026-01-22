@@ -138,6 +138,25 @@ Plan → Work → Review → Compound
 
 **Why this matters:** This sequence ensures quality, catches issues early, and builds institutional knowledge. Skipping steps leads to bugs, technical debt, and lost learnings.
 
+### Anti-Patterns: What NEVER To Do
+
+**❌ FORBIDDEN BEHAVIORS - If you do any of these, you have failed:**
+
+| What You Said | Why It's Wrong |
+|---------------|----------------|
+| "The changes are small, skipping review" | Size is irrelevant. Small bugs cause big outages. |
+| "This is a simple fix, compound not needed" | Simple fixes often reveal patterns worth documenting. |
+| "I made a judgment call to skip review" | Your judgment is not a valid skip reason. Only flags are. |
+| "It wasn't worth the overhead" | The overhead exists to catch YOUR mistakes. |
+| "I don't know why I skipped it" | Unacceptable. Follow the explicit instructions. |
+| "Nothing new to learn here" | You're not qualified to make that determination. Run compound. |
+
+**The ONLY valid reasons to skip Review or Compound:**
+1. `--skip-review` flag was explicitly passed in the command
+2. `--skip-compound` flag was explicitly passed in the command
+
+**There are no other valid reasons. None. Zero.**
+
 ## Main Loop Instructions
 
 ### Phase 0: Initialize
@@ -436,9 +455,19 @@ The work workflow will:
 - Run tests and linting
 - Create commit
 
-### Phase 5: Review (REQUIRED unless --skip-review)
+### Phase 5: Review (MANDATORY)
 
-**IMPORTANT: Always run review after work is complete. This is NOT optional.**
+> ⛔ **MANDATORY STEP** - You MUST run `/workflows:review`.
+> The ONLY valid skip reason is if `--skip-review` was in the original command arguments.
+>
+> **INVALID skip reasons (NEVER use these):**
+> - "Changes are small"
+> - "Simple fix"
+> - "Not worth the overhead"
+> - "Made a judgment call"
+> - Any reason YOU invented
+
+**If `--skip-review` was NOT passed, you MUST run review. No exceptions.**
 
 Run code review automatically on changes:
 
@@ -502,7 +531,19 @@ For each P2/P3 finding, **create a new follow-up todo and Linear ticket:**
    )
    ```
 
-### Phase 6: Compound (unless --skip-compound)
+### Phase 6: Compound (MANDATORY)
+
+> ⛔ **MANDATORY STEP** - You MUST run `/workflows:compound`.
+> The ONLY valid skip reason is if `--skip-compound` was in the original command arguments.
+>
+> **INVALID skip reasons (NEVER use these):**
+> - "Nothing new learned"
+> - "Changes are trivial"
+> - "No patterns to document"
+> - "Made a judgment call"
+> - Any reason YOU invented
+
+**If `--skip-compound` was NOT passed, you MUST run compound. No exceptions.**
 
 Document learnings:
 
@@ -514,6 +555,29 @@ This captures:
 - What was learned
 - Patterns discovered
 - Future prevention strategies
+
+### Phase 6.5: Workflow Verification Gate (BLOCKING)
+
+**⛔ STOP. Before creating a PR, you MUST verify all mandatory steps were executed.**
+
+Fill out this checklist BEFORE proceeding:
+
+```yaml
+workflow_verification:
+  plan_ran: [yes | skipped-existing-plan]
+  work_ran: [yes]
+  review_ran: [yes | skipped-via-flag]      # "no" is INVALID unless --skip-review was passed
+  compound_ran: [yes | skipped-via-flag]    # "no" is INVALID unless --skip-compound was passed
+  flags_received: [list any --skip-* flags from original command, or "none"]
+```
+
+**BLOCKING CONDITIONS:**
+- If `review_ran` is "no" and `--skip-review` was NOT in original args → **GO BACK AND RUN REVIEW NOW**
+- If `compound_ran` is "no" and `--skip-compound` was NOT in original args → **GO BACK AND RUN COMPOUND NOW**
+
+**You may NOT proceed to Phase 7 until this gate passes.**
+
+---
 
 ### Phase 7: Open PR
 
@@ -766,13 +830,29 @@ When loop ends, output summary:
 
 ## Output Completion Promise
 
-When all todos are processed OR max iterations reached:
+When all todos are processed OR max iterations reached, output this **with accountability details**:
 
 ```
-<promise>RALPH_TODOS_COMPLETE</promise>
+<promise>
+RALPH_TODOS_COMPLETE
+executed_workflow:
+  todos_processed: [number]
+  todos_completed: [number]
+  todos_blocked: [number]
+  for_each_todo:
+    - issue: [HOL-XXX]
+      plan: [ran | skipped-existing-plan]
+      work: [ran]
+      review: [ran | skipped-via-flag]
+      compound: [ran | skipped-via-flag]
+      pr: [merged | open | none]
+flags_received: [--skip-review, --skip-compound, or "none"]
+</promise>
 ```
 
-This signals the loop has finished its current run.
+**IMPORTANT:** If any todo shows `review: skipped` or `compound: skipped` without the corresponding flag in `flags_received`, you have violated the workflow requirements.
+
+This signals the loop has finished its current run AND provides accountability for what was actually executed.
 
 ## Examples
 

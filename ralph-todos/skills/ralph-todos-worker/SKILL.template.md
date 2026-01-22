@@ -24,10 +24,16 @@ worktreePath: Absolute path to your git worktree
 todoFile: Path to the todo file (relative to main repo)
 linearId: Linear issue UUID
 linearIssue: Linear issue identifier (e.g., HOL-123)
-skipReview: Whether to skip review phase (default: false)
-skipCompound: Whether to skip compound phase (default: false)
+skipReview: ONLY true if orchestrator explicitly passed --skip-review flag.
+            If false or undefined, you MUST run review. No exceptions.
+            YOUR JUDGMENT IS NOT A VALID REASON TO SKIP.
+skipCompound: ONLY true if orchestrator explicitly passed --skip-compound flag.
+              If false or undefined, you MUST run compound. No exceptions.
+              YOUR JUDGMENT IS NOT A VALID REASON TO SKIP.
 noMerge: Whether to skip auto-merge (default: false)
 ```
+
+**⛔ CRITICAL:** The `skipReview` and `skipCompound` flags are ONLY set by the orchestrator based on user-provided command line flags. You may NOT decide to skip these steps on your own. If the flag is false, you MUST run the step.
 
 ## Important: Worktree Context
 
@@ -96,7 +102,18 @@ Args: [todoFile or plan path]
 
 All code changes happen in `[worktreePath]`.
 
-### Phase 5: Review (unless skipReview)
+### Phase 5: Review (MANDATORY)
+
+> ⛔ **MANDATORY STEP** - You MUST run `/workflows:review`.
+> Skip ONLY if `skipReview: true` was provided by the orchestrator.
+>
+> **INVALID skip reasons:**
+> - "Changes are small" ❌
+> - "Simple fix" ❌
+> - "Made a judgment call" ❌
+> - Any reason YOU invented ❌
+
+**If `skipReview` is false or undefined, run review. No exceptions.**
 
 Run code review on your changes:
 
@@ -121,7 +138,18 @@ Return: {
 }
 ```
 
-### Phase 6: Compound (unless skipCompound)
+### Phase 6: Compound (MANDATORY)
+
+> ⛔ **MANDATORY STEP** - You MUST run `/workflows:compound`.
+> Skip ONLY if `skipCompound: true` was provided by the orchestrator.
+>
+> **INVALID skip reasons:**
+> - "Nothing new learned" ❌
+> - "Changes are trivial" ❌
+> - "Made a judgment call" ❌
+> - Any reason YOU invented ❌
+
+**If `skipCompound` is false or undefined, run compound. No exceptions.**
 
 Document learnings:
 
@@ -192,6 +220,22 @@ EOF
    - Attempt fix (2 tries max)
    - If cannot fix, return with `status: "failed"`
 
+### Phase 9.5: Workflow Verification Gate (BLOCKING)
+
+**⛔ STOP. Before returning your result, verify all mandatory steps were executed.**
+
+```yaml
+workflow_verification:
+  plan_ran: [yes | skipped-existing-plan]
+  work_ran: [yes]
+  review_ran: [yes | skipped-via-flag]      # Must be "yes" unless skipReview was true
+  compound_ran: [yes | skipped-via-flag]    # Must be "yes" unless skipCompound was true
+```
+
+**If review or compound shows "no" without the corresponding flag being true, GO BACK AND RUN THEM NOW.**
+
+---
+
 ### Phase 10: Return Result
 
 **CRITICAL:** You must return a structured result that the orchestrator can parse.
@@ -208,10 +252,18 @@ Output this exact format at the end of your work:
   "prNumber": 123,
   "merged": true | false,
   "error": null | "[error message]",
-  "followUps": ["HOL-124", "HOL-125"]
+  "followUps": ["HOL-124", "HOL-125"],
+  "workflowExecuted": {
+    "plan": "ran" | "skipped-existing-plan",
+    "work": "ran",
+    "review": "ran" | "skipped-via-flag",
+    "compound": "ran" | "skipped-via-flag"
+  }
 }
 </worker-result>
 ```
+
+**IMPORTANT:** The `workflowExecuted` field provides accountability. If `review` or `compound` shows "skipped-via-flag" but the orchestrator did NOT pass the skip flag, you have violated the workflow.
 
 ## Result Status Meanings
 
@@ -273,7 +325,13 @@ Worker:
        "prNumber": 45,
        "merged": true,
        "error": null,
-       "followUps": ["HOL-124"]
+       "followUps": ["HOL-124"],
+       "workflowExecuted": {
+         "plan": "skipped-existing-plan",
+         "work": "ran",
+         "review": "ran",
+         "compound": "ran"
+       }
      }
      </worker-result>
 ```
